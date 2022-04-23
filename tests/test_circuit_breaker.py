@@ -65,7 +65,7 @@ class TestCircuitBreakerRecovery:
         assert cb.state is CircuitState.OPEN
 
         with patch("philiprehberger_circuit_breaker.time") as mock_time:
-            mock_time.monotonic.return_value = cb._last_failure_time + 10  # type: ignore[operator]
+            mock_time.monotonic.return_value = cb._last_failure_time + 11  # type: ignore[operator]
             assert cb.state is CircuitState.HALF_OPEN
 
     def test_closes_on_success_in_half_open(self) -> None:
@@ -74,9 +74,8 @@ class TestCircuitBreakerRecovery:
             with pytest.raises(RuntimeError):
                 cb.call(_failing)
 
-        with patch("philiprehberger_circuit_breaker.time") as mock_time:
-            mock_time.monotonic.return_value = cb._last_failure_time + 10  # type: ignore[operator]
-            result = cb.call(_succeeding)
+        cb._state = CircuitState.HALF_OPEN
+        result = cb.call(_succeeding)
 
         assert result == "ok"
         assert cb.state is CircuitState.CLOSED
@@ -87,10 +86,9 @@ class TestCircuitBreakerRecovery:
             with pytest.raises(RuntimeError):
                 cb.call(_failing)
 
-        with patch("philiprehberger_circuit_breaker.time") as mock_time:
-            mock_time.monotonic.return_value = cb._last_failure_time + 10  # type: ignore[operator]
-            with pytest.raises(RuntimeError):
-                cb.call(_failing)
+        cb._state = CircuitState.HALF_OPEN
+        with pytest.raises(RuntimeError):
+            cb.call(_failing)
 
         assert cb.state is CircuitState.OPEN
 
