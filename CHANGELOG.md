@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 (2026-04-01)
+
+- Add half-open probe limiting via `half_open_max_calls` parameter
+- Add event listener system with `add_listener()` and `remove_listener()` methods
+- Add `HealthWindow` class for rolling-window failure rate tracking
+- Add `get_state()` method for observability
+- Add `get_stats()` method returning a `CircuitBreakerStats` snapshot
+- Add `CircuitBreakerStats` frozen dataclass with state, counts, and timing info
+- Track success count alongside failure count
+
 ## 0.2.1 (2026-03-31)
 
 - Standardize README to 3-badge format with emoji Support section
