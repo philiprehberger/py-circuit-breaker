@@ -3,6 +3,7 @@
 [![Tests](https://github.com/philiprehberger/py-circuit-breaker/actions/workflows/publish.yml/badge.svg)](https://github.com/philiprehberger/py-circuit-breaker/actions/workflows/publish.yml)
 [![PyPI version](https://img.shields.io/pypi/v/philiprehberger-circuit-breaker.svg)](https://pypi.org/project/philiprehberger-circuit-breaker/)
 [![License](https://img.shields.io/github/license/philiprehberger/py-circuit-breaker)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ec6cb9)](https://github.com/sponsors/philiprehberger)
 
 Circuit breaker pattern for fault-tolerant service calls.
 
