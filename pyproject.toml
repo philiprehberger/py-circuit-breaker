@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "philiprehberger-circuit-breaker"
-version = "0.2.1"
+version = "0.3.0"
 description = "Circuit breaker pattern for fault-tolerant service calls."
 readme = "README.md"
 license = "MIT"

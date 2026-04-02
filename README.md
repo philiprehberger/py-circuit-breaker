@@ -52,40 +52,68 @@ except CircuitOpenError:
 ### Checking Circuit State
 
 ```python
-from philiprehberger_circuit_breaker import CircuitState, circuit_breaker
+from philiprehberger_circuit_breaker import CircuitBreaker, CircuitState
 
-@circuit_breaker(failure_threshold=3)
-def my_service_call():
-    ...
+breaker = CircuitBreaker(failure_threshold=3)
 
-if my_service_call.breaker.state is CircuitState.OPEN:
+if breaker.get_state() is CircuitState.OPEN:
     print("Circuit is open, using fallback")
+```
+
+### Observability with get_stats
+
+```python
+from philiprehberger_circuit_breaker import CircuitBreaker
+
+breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=30)
+
+stats = breaker.get_stats()
+print(f"State: {stats.state.value}")
+print(f"Failures: {stats.failure_count}")
+print(f"Successes: {stats.success_count}")
+print(f"Last failure: {stats.last_failure_time}")
+print(f"Recovery timeout: {stats.current_recovery_timeout}s")
 ```
 
 ### State Transition Callbacks
 
-Register callbacks to be notified when the circuit changes state, useful for monitoring and alerting.
+Register callbacks to be notified when the circuit changes state.
 
 ```python
 from philiprehberger_circuit_breaker import CircuitBreaker
 
 def notify_open():
-    print("Circuit opened! Alerting on-call team.")
-
-def notify_close():
-    print("Circuit closed. Service recovered.")
-
-def notify_half_open():
-    print("Circuit half-open. Testing recovery...")
+    print("Circuit opened!")
 
 breaker = CircuitBreaker(
     failure_threshold=3,
     on_open=notify_open,
-    on_close=notify_close,
-    on_half_open=notify_half_open,
+    on_close=lambda: print("Circuit closed."),
+    on_half_open=lambda: print("Circuit half-open."),
 )
 
 result = breaker.call(requests.get, "https://api.example.com/data")
+```
+
+### Event Listeners
+
+Register multiple callbacks for the same state transition event.
+
+```python
+from philiprehberger_circuit_breaker import CircuitBreaker
+
+breaker = CircuitBreaker(failure_threshold=3)
+
+breaker.add_listener("on_open", lambda: print("Listener 1: opened"))
+breaker.add_listener("on_open", lambda: print("Listener 2: opened"))
+breaker.add_listener("on_close", lambda: print("Service recovered"))
+
+# Remove a listener when no longer needed
+def my_handler():
+    print("temporary handler")
+
+breaker.add_listener("on_open", my_handler)
+breaker.remove_listener("on_open", my_handler)
 ```
 
 ### Per-Exception-Type Failure Thresholds
@@ -95,14 +123,47 @@ Use `ExceptionFilter` to configure which exceptions count as failures and set in
 ```python
 from philiprehberger_circuit_breaker import CircuitBreaker, ExceptionFilter
 
-# TimeoutError opens the circuit after 2 occurrences,
-# all other exceptions use the default failure_threshold (5)
 exc_filter = ExceptionFilter(
     base_exceptions=(ConnectionError, TimeoutError, OSError),
     thresholds={TimeoutError: 2},
 )
 
 breaker = CircuitBreaker(failure_threshold=5, exception_filter=exc_filter)
+result = breaker.call(requests.get, "https://api.example.com/data")
+```
+
+### Half-Open Probe Limiting
+
+Control how many test calls are allowed in the half-open state before requiring a success.
+
+```python
+from philiprehberger_circuit_breaker import CircuitBreaker
+
+breaker = CircuitBreaker(
+    failure_threshold=3,
+    recovery_timeout=30,
+    half_open_max_calls=3,
+)
+```
+
+### Health Window
+
+Track success rate over a rolling time window instead of relying solely on consecutive failures.
+
+```python
+from philiprehberger_circuit_breaker import CircuitBreaker, HealthWindow
+
+health_window = HealthWindow(
+    window_size=60.0,
+    failure_rate_threshold=0.5,
+    min_calls=10,
+)
+
+breaker = CircuitBreaker(
+    failure_threshold=100,
+    health_window=health_window,
+)
+
 result = breaker.call(requests.get, "https://api.example.com/data")
 ```
 
@@ -115,13 +176,10 @@ from philiprehberger_circuit_breaker import CircuitBreaker
 
 breaker = CircuitBreaker(
     failure_threshold=3,
-    recovery_timeout=10,         # initial timeout: 10 seconds
-    backoff_multiplier=2.0,      # double the timeout each time
-    max_recovery_timeout=300.0,  # cap at 5 minutes
+    recovery_timeout=10,
+    backoff_multiplier=2.0,
+    max_recovery_timeout=300.0,
 )
-
-# First trip: 20s, second trip: 40s, third trip: 80s, ... up to 300s
-result = breaker.call(requests.get, "https://api.example.com/data")
 ```
 
 ### Resetting the Circuit
@@ -140,41 +198,68 @@ my_service_call.breaker.reset()
 
 ### `CircuitBreaker`
 
-| Method / Property | Description |
-|-------------------|-------------|
-| `CircuitBreaker(failure_threshold, recovery_timeout, expected_exceptions, *, on_open, on_close, on_half_open, exception_filter, backoff_multiplier, max_recovery_timeout)` | Create a circuit breaker instance |
+| Function / Class | Description |
+|------------------|-------------|
+| `CircuitBreaker(failure_threshold, recovery_timeout, expected_exceptions, *, on_open, on_close, on_half_open, exception_filter, backoff_multiplier, max_recovery_timeout, half_open_max_calls, health_window)` | Create a circuit breaker instance |
 | `call(fn, *args, **kwargs)` | Execute a function through the circuit breaker |
 | `state` | Current circuit state (`CLOSED`, `OPEN`, or `HALF_OPEN`) |
+| `get_state()` | Return the current circuit state |
+| `get_stats()` | Return a `CircuitBreakerStats` snapshot |
+| `add_listener(event, callback)` | Register a callback for a state transition event |
+| `remove_listener(event, callback)` | Remove a previously registered callback |
 | `reset()` | Reset the circuit breaker to the closed state |
+
+### `CircuitBreakerStats`
+
+| Function / Class | Description |
+|------------------|-------------|
+| `state` | Current circuit state |
+| `failure_count` | Total failure count |
+| `success_count` | Total success count |
+| `last_failure_time` | Monotonic timestamp of the last failure, or `None` |
+| `consecutive_opens` | Number of consecutive times the circuit has opened |
+| `current_recovery_timeout` | Current recovery timeout in seconds |
+| `health_window_failure_rate` | Failure rate from the health window, or `None` |
 
 ### `CircuitState`
 
-| Value | Description |
-|-------|-------------|
+| Function / Class | Description |
+|------------------|-------------|
 | `CLOSED` | Normal operation, calls pass through |
 | `OPEN` | Circuit tripped, calls are rejected |
 | `HALF_OPEN` | Recovery probe, next call determines transition |
 
 ### `CircuitOpenError`
 
-| Attribute | Description |
-|-----------|-------------|
+| Function / Class | Description |
+|------------------|-------------|
 | `breaker` | Reference to the `CircuitBreaker` that raised the error |
 
 ### `ExceptionFilter`
 
-| Method / Property | Description |
-|-------------------|-------------|
+| Function / Class | Description |
+|------------------|-------------|
 | `ExceptionFilter(base_exceptions, thresholds)` | Create an exception filter with optional per-type thresholds |
 | `matches(exc)` | Return True if the exception counts as a failure |
 | `record(exc)` | Record a failure; returns True if a per-type threshold was reached |
 | `reset()` | Reset all per-type counters |
 
+### `HealthWindow`
+
+| Function / Class | Description |
+|------------------|-------------|
+| `HealthWindow(window_size, failure_rate_threshold, min_calls)` | Create a rolling health window |
+| `record_success(now)` | Record a successful call |
+| `record_failure(now)` | Record a failed call |
+| `should_open(now)` | Return True if failure rate exceeds threshold |
+| `failure_rate(now)` | Return current failure rate (0.0 to 1.0) |
+| `reset()` | Clear all recorded calls |
+
 ### `circuit_breaker`
 
-| Function | Description |
-|----------|-------------|
-| `circuit_breaker(failure_threshold, recovery_timeout, expected_exceptions, *, on_open, on_close, on_half_open, exception_filter, backoff_multiplier, max_recovery_timeout)` | Decorator factory that wraps a function with a `CircuitBreaker` |
+| Function / Class | Description |
+|------------------|-------------|
+| `circuit_breaker(failure_threshold, recovery_timeout, expected_exceptions, *, on_open, on_close, on_half_open, exception_filter, backoff_multiplier, max_recovery_timeout, half_open_max_calls, health_window)` | Decorator factory that wraps a function with a `CircuitBreaker` |
 
 ## Development
 
