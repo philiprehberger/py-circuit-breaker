@@ -624,3 +624,50 @@ class TestCallbacksOnStateTransitions:
             _ = cb.state
 
         assert events == ["half_open"]
+
+
+# acall (async) tests
+import asyncio
+import pytest
+
+
+def test_acall_success_returns_value() -> None:
+    from philiprehberger_circuit_breaker import CircuitBreaker
+
+    breaker = CircuitBreaker(failure_threshold=3)
+
+    async def ok() -> int:
+        return 42
+
+    assert asyncio.run(breaker.acall(ok)) == 42
+
+
+def test_acall_opens_circuit_after_threshold() -> None:
+    from philiprehberger_circuit_breaker import CircuitBreaker, CircuitOpenError, CircuitState
+
+    breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=60)
+
+    async def boom() -> int:
+        raise RuntimeError("nope")
+
+    async def run() -> None:
+        for _ in range(2):
+            with pytest.raises(RuntimeError):
+                await breaker.acall(boom)
+        # Third call should hit the open circuit
+        with pytest.raises(CircuitOpenError):
+            await breaker.acall(boom)
+
+    asyncio.run(run())
+    assert breaker.state is CircuitState.OPEN
+
+
+def test_acall_passes_args_and_kwargs() -> None:
+    from philiprehberger_circuit_breaker import CircuitBreaker
+
+    breaker = CircuitBreaker(failure_threshold=3)
+
+    async def add(a: int, b: int, *, c: int = 0) -> int:
+        return a + b + c
+
+    assert asyncio.run(breaker.acall(add, 1, 2, c=3)) == 6

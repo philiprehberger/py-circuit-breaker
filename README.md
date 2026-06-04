@@ -4,6 +4,8 @@
 [![PyPI version](https://img.shields.io/pypi/v/philiprehberger-circuit-breaker.svg)](https://pypi.org/project/philiprehberger-circuit-breaker/)
 [![Last updated](https://img.shields.io/github/last-commit/philiprehberger/py-circuit-breaker)](https://github.com/philiprehberger/py-circuit-breaker/commits/main)
 
+![philiprehberger-circuit-breaker](https://raw.githubusercontent.com/philiprehberger/py-circuit-breaker/main/package-card.webp)
+
 Circuit breaker pattern for fault-tolerant service calls.
 
 ## Installation
@@ -194,6 +196,24 @@ def my_service_call():
 my_service_call.breaker.reset()
 ```
 
+### Async usage with `acall`
+
+```python
+import httpx
+from philiprehberger_circuit_breaker import CircuitBreaker
+
+breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=30)
+
+async def fetch_user(user_id: int) -> dict:
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(f"https://api.example.com/users/{user_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+# Awaits the coroutine through the same lock and state machine as call()
+user = await breaker.acall(fetch_user, 42)
+```
+
 ## API
 
 ### `CircuitBreaker`
@@ -202,6 +222,7 @@ my_service_call.breaker.reset()
 |------------------|-------------|
 | `CircuitBreaker(failure_threshold, recovery_timeout, expected_exceptions, *, on_open, on_close, on_half_open, exception_filter, backoff_multiplier, max_recovery_timeout, half_open_max_calls, health_window)` | Create a circuit breaker instance |
 | `call(fn, *args, **kwargs)` | Execute a function through the circuit breaker |
+| `acall(fn, *args, **kwargs)` | Async counterpart to `call()` — awaits a coroutine function |
 | `state` | Current circuit state (`CLOSED`, `OPEN`, or `HALF_OPEN`) |
 | `get_state()` | Return the current circuit state |
 | `get_stats()` | Return a `CircuitBreakerStats` snapshot |

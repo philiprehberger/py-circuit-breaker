@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 (2026-06-04)
+
+- Add `CircuitBreaker.acall(fn, *args, **kwargs)` — async counterpart to `call()` for awaiting coroutine functions through the breaker, using the same lock and state transitions
+- Add `package-card.webp` to README
+
 ## 0.3.0 (2026-04-01)
 
 - Add half-open probe limiting via `half_open_max_calls` parameter

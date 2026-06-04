@@ -8,7 +8,7 @@ import functools
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, TypeVar
+from typing import Any, Awaitable, Callable, TypeVar
 
 __all__ = [
     "CircuitBreaker",
@@ -390,6 +390,103 @@ class CircuitBreaker:
                         self._half_open_calls = 0
                         self._consecutive_opens += 1
                         # Apply exponential backoff
+                        if self.backoff_multiplier > 1.0:
+                            self._current_recovery_timeout = min(
+                                self.recovery_timeout
+                                * (self.backoff_multiplier ** self._consecutive_opens),
+                                self.max_recovery_timeout,
+                            )
+                        if prev is not CircuitState.OPEN:
+                            fire_open = True
+
+                if fire_open:
+                    self._fire_callback(self.on_open, "on_open")
+
+            raise
+        else:
+            fire_close = False
+            with self._lock:
+                prev = self._state
+                self._failure_count = 0
+                self._success_count += 1
+                self._consecutive_opens = 0
+                self._half_open_calls = 0
+                self._current_recovery_timeout = self.recovery_timeout
+                self._state = CircuitState.CLOSED
+                if self.health_window is not None:
+                    self.health_window.record_success()
+                if self.exception_filter is not None:
+                    self.exception_filter.reset()
+                if prev is not CircuitState.CLOSED:
+                    fire_close = True
+
+            if fire_close:
+                self._fire_callback(self.on_close, "on_close")
+            return result
+
+    async def acall(
+        self, fn: Callable[..., Awaitable[T]], *args: Any, **kwargs: Any
+    ) -> T:
+        """Execute an async *fn* through the circuit breaker.
+
+        Mirror of :meth:`call` for coroutine functions. The same lock and
+        state transitions apply; only the function invocation is awaited.
+
+        Raises:
+            CircuitOpenError: If the circuit is currently open or the
+                half-open probe limit is exceeded.
+        """
+        fire_half_open = False
+        with self._lock:
+            fire_half_open = self._check_open_to_half_open()
+            if self._state is CircuitState.OPEN:
+                raise CircuitOpenError(self)
+            if self._state is CircuitState.HALF_OPEN:
+                if self._half_open_calls >= self.half_open_max_calls:
+                    raise CircuitOpenError(self)
+                self._half_open_calls += 1
+
+        if fire_half_open:
+            self._fire_callback(self.on_half_open, "on_half_open")
+
+        try:
+            result = await fn(*args, **kwargs)
+        except BaseException as exc:
+            is_failure = False
+            if self.exception_filter is not None:
+                is_failure = self.exception_filter.matches(exc)
+            else:
+                is_failure = isinstance(exc, self.expected_exceptions)
+
+            if is_failure:
+                fire_open = False
+                with self._lock:
+                    self._failure_count += 1
+                    self._last_failure_time = time.monotonic()
+
+                    if self.health_window is not None:
+                        self.health_window.record_failure()
+
+                    per_type_tripped = False
+                    if self.exception_filter is not None:
+                        per_type_tripped = self.exception_filter.record(exc)
+
+                    hw_tripped = False
+                    if self.health_window is not None:
+                        hw_tripped = self.health_window.should_open()
+
+                    should_open = (
+                        per_type_tripped
+                        or hw_tripped
+                        or self._failure_count >= self.failure_threshold
+                        or self._state is CircuitState.HALF_OPEN
+                    )
+
+                    if should_open:
+                        prev = self._state
+                        self._state = CircuitState.OPEN
+                        self._half_open_calls = 0
+                        self._consecutive_opens += 1
                         if self.backoff_multiplier > 1.0:
                             self._current_recovery_timeout = min(
                                 self.recovery_timeout
